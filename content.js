@@ -425,7 +425,7 @@ async function autoTick() {
     const r = await fetch('http://127.0.0.1:8080/bestmove', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ fen: `${fen} ${sideToMove} - - 0 1`, movetime }),
+      body: JSON.stringify({ fen: `${fen} ${sideToMove} - - 0 1`, movetime, plies }),
     });
     const data = await r.json();
     if (data.bestmove && data.bestmove !== '(none)') {

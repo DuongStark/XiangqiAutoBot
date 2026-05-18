@@ -1,10 +1,17 @@
 """
 Pikafish UCI server - HTTP wrapper quanh Pikafish binary.
 
-POST /bestmove   { "fen": "...", "movetime": 1000 }  -> { "bestmove": "h2e2", "info": "..." }
+POST /bestmove   { "fen": "...", "movetime": 1000, "plies": 12 }  -> { "bestmove": "h2e2", ... }
 GET  /health                                          -> { "ok": true }
+
+Anti-repetition: server theo doi moi vi tri (board FEN) da goi engine va nuoc
+da choi. Neu engine de xuat lai nuoc cu o cung vi tri cu -> dung nuoc PV2 (hoac PVk khac)
+de pha vong lap.
+
+Variety: khai cuoc / trung cuoc dung MultiPV cao, random trong cac nuoc gap nho de da dang.
 """
 import json
+import random
 import subprocess
 import threading
 import time
@@ -16,6 +23,21 @@ ENGINE_EXE = ENGINE_DIR / "pikafish.exe"
 HOST = "127.0.0.1"
 PORT = 8080
 ALLOWED_ORIGIN = "https://play.xiangqi.com"
+
+STARTPOS_BOARD = "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR"
+
+
+def fen_board_only(fen: str) -> str:
+    return fen.split()[0] if fen else ""
+
+
+def variety_config(plies: int) -> tuple[int, int]:
+    """Tra ve (multipv, max_gap_cp) theo phase."""
+    if plies < 10:
+        return 5, 50
+    if plies < 30:
+        return 3, 30
+    return 2, 0
 
 
 class Engine:
@@ -32,10 +54,19 @@ class Engine:
         self.lock = threading.Lock()
         self._send("uci")
         self._read_until("uciok")
-        self._send("setoption name MultiPV value 2")
         self._send("isready")
         self._read_until("readyok")
+        self.played: dict[str, set[str]] = {}
+        self.current_multipv = 0
         print(f"[engine] ready: {exe_path}")
+
+    def _set_multipv(self, n: int):
+        if self.current_multipv == n:
+            return
+        self._send(f"setoption name MultiPV value {n}")
+        self._send("isready")
+        self._read_until("readyok")
+        self.current_multipv = n
 
     def _send(self, cmd: str):
         self.proc.stdin.write(cmd + "\n")
@@ -54,8 +85,7 @@ class Engine:
                 return lines if collect else line
 
     @staticmethod
-    def _score_from_info(line: str) -> int | None:
-        """Tra ve score (cp) tu dong info, mate quy thanh +/-100000."""
+    def _score_from_info(line: str):
         parts = line.split()
         try:
             i = parts.index("score")
@@ -69,7 +99,7 @@ class Engine:
         return None
 
     @staticmethod
-    def _multipv_from_info(line: str) -> int | None:
+    def _multipv_from_info(line: str):
         parts = line.split()
         try:
             i = parts.index("multipv")
@@ -77,8 +107,58 @@ class Engine:
         except (ValueError, IndexError):
             return None
 
-    def bestmove(self, fen: str, movetime_ms: int = 1000, depth: int | None = None) -> dict:
+    @staticmethod
+    def _pv_first_move(line: str):
+        parts = line.split()
+        try:
+            i = parts.index("pv")
+            return parts[i + 1]
+        except (ValueError, IndexError):
+            return None
+
+    def _parse_search(self, lines):
+        best_line = lines[-1] if lines else ""
+        parts = best_line.split()
+        best = parts[1] if len(parts) > 1 else None
+
+        pv_scores: dict[int, int] = {}
+        pv_moves: dict[int, str] = {}
+        last_depth = 0
+        for l in lines:
+            if not l.startswith("info") or "score" not in l or "multipv" not in l:
+                continue
+            pv = self._multipv_from_info(l)
+            sc = self._score_from_info(l)
+            mv = self._pv_first_move(l)
+            if pv is not None:
+                if sc is not None:
+                    pv_scores[pv] = sc
+                if mv is not None:
+                    pv_moves[pv] = mv
+            if " depth " in l:
+                try:
+                    d = int(l.split(" depth ")[1].split()[0])
+                    last_depth = max(last_depth, d)
+                except (ValueError, IndexError):
+                    pass
+
+        best_score = pv_scores.get(1)
+        second_score = pv_scores.get(2)
+        second_move = pv_moves.get(2)
+        gap = abs(best_score - second_score) if (best_score is not None and second_score is not None) else None
+        return best, second_move, best_score, second_score, gap, last_depth
+
+    def bestmove(self, fen: str, movetime_ms: int = 1000, depth=None, plies: int = 0) -> dict:
         with self.lock:
+            board = fen_board_only(fen)
+
+            if board == STARTPOS_BOARD and self.played:
+                print("[engine] startpos detected, reset anti-repetition history")
+                self.played.clear()
+
+            multipv, max_gap = variety_config(plies)
+            self._set_multipv(multipv)
+
             self._send("ucinewgame")
             self._send("isready")
             self._read_until("readyok")
@@ -88,36 +168,91 @@ class Engine:
             else:
                 self._send(f"go movetime {movetime_ms}")
             lines = self._read_until("bestmove", collect=True)
-            best_line = lines[-1]
-            best = best_line.split()[1] if len(best_line.split()) > 1 else None
-
-            pv_scores: dict[int, int] = {}
-            last_depth = 0
-            for l in lines:
-                if not l.startswith("info") or "score" not in l or "multipv" not in l:
-                    continue
-                pv = self._multipv_from_info(l)
-                sc = self._score_from_info(l)
-                if pv is not None and sc is not None:
-                    pv_scores[pv] = sc
-                if " depth " in l:
-                    try:
-                        d = int(l.split(" depth ")[1].split()[0])
-                        last_depth = max(last_depth, d)
-                    except (ValueError, IndexError):
-                        pass
+            best, pv_moves, pv_scores, last_depth = self._parse_search(lines)
 
             best_score = pv_scores.get(1)
             second_score = pv_scores.get(2)
             gap = abs(best_score - second_score) if (best_score is not None and second_score is not None) else None
 
+            already_played = self.played.get(board, set())
+            candidates = []
+            if best_score is not None and max_gap > 0:
+                for k in sorted(pv_moves.keys()):
+                    mv = pv_moves[k]
+                    sc = pv_scores.get(k)
+                    if sc is None or mv in already_played:
+                        continue
+                    if abs(best_score - sc) <= max_gap:
+                        candidates.append((mv, sc, k))
+
+            chosen = best
+            chosen_score = best_score
+            chosen_pv = 1
+            avoided = False
+            randomized = False
+
+            if best in already_played:
+                fallback = next(((mv, sc, k) for mv, sc, k in candidates if mv != best), None)
+                if not fallback:
+                    for k in sorted(pv_moves.keys()):
+                        mv = pv_moves[k]
+                        if mv != best and mv not in already_played:
+                            fallback = (mv, pv_scores.get(k), k); break
+                if fallback:
+                    chosen, chosen_score, chosen_pv = fallback
+                    avoided = True
+                    print(f"[engine] anti-repetition: {best} da choi roi -> chon PV{chosen_pv} {chosen}")
+            elif len(candidates) > 1:
+                pick = random.choice(candidates)
+                if pick[0] != best:
+                    chosen, chosen_score, chosen_pv = pick
+                    randomized = True
+                    print(f"[engine] variety: phase plies={plies}, co {len(candidates)} nuoc ngang ngua, chon PV{chosen_pv} {chosen} (score={chosen_score})")
+
+            if chosen and chosen != "(none)":
+                self.played.setdefault(board, set()).add(chosen)
+                if len(self.played) > 200:
+                    self.played.clear()
+
             return {
-                "bestmove": best,
-                "score": best_score,
+                "bestmove": chosen,
+                "score": chosen_score,
+                "best_score": best_score,
                 "second_score": second_score,
                 "gap": gap,
                 "depth": last_depth,
+                "multipv": multipv,
+                "candidates": len(candidates),
+                "avoided_repetition": avoided,
+                "randomized": randomized,
             }
+
+    def _parse_search(self, lines):
+        best_line = lines[-1] if lines else ""
+        parts = best_line.split()
+        best = parts[1] if len(parts) > 1 else None
+
+        pv_scores: dict[int, int] = {}
+        pv_moves: dict[int, str] = {}
+        last_depth = 0
+        for l in lines:
+            if not l.startswith("info") or "score" not in l or "multipv" not in l:
+                continue
+            pv = self._multipv_from_info(l)
+            sc = self._score_from_info(l)
+            mv = self._pv_first_move(l)
+            if pv is not None:
+                if sc is not None:
+                    pv_scores[pv] = sc
+                if mv is not None:
+                    pv_moves[pv] = mv
+            if " depth " in l:
+                try:
+                    d = int(l.split(" depth ")[1].split()[0])
+                    last_depth = max(last_depth, d)
+                except (ValueError, IndexError):
+                    pass
+        return best, pv_moves, pv_scores, last_depth
 
     def close(self):
         try:
@@ -172,8 +307,9 @@ class Handler(BaseHTTPRequestHandler):
                 return
             movetime = int(data.get("movetime", 1000))
             depth = data.get("depth")
+            plies = int(data.get("plies", 0))
             t0 = time.time()
-            result = engine.bestmove(fen, movetime_ms=movetime, depth=depth)
+            result = engine.bestmove(fen, movetime_ms=movetime, depth=depth, plies=plies)
             result["elapsed_ms"] = int((time.time() - t0) * 1000)
             self._json(200, result)
         except Exception as e:
