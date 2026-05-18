@@ -37,17 +37,25 @@ document.getElementById('testEngine').addEventListener('click', async () => {
   }
 });
 
+async function activeTab() {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  return tab;
+}
+
+async function resolveSide(tab, raw) {
+  if (raw === 'w' || raw === 'b') return raw;
+  const st = await chrome.tabs.sendMessage(tab.id, { type: 'AUTO_STATE' }).catch(() => null);
+  return st?.userSide || 'w';
+}
+
 document.getElementById('readBoard').addEventListener('click', async () => {
   setStatus('Đang đọc bàn cờ...');
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    const side = document.getElementById('side').value;
+    const tab = await activeTab();
+    const side = await resolveSide(tab, document.getElementById('side').value);
     const res = await chrome.tabs.sendMessage(tab.id, { type: 'READ_BOARD', side });
-    if (!res.ok) {
-      setStatus(`Lỗi: ${res.error}`, 'err');
-      return;
-    }
-    setStatus(`FEN: ${res.fen}`, 'ok');
+    if (!res.ok) { setStatus(`Lỗi: ${res.error}`, 'err'); return; }
+    setStatus(`[${side}] FEN: ${res.fen}`, 'ok');
     console.log('[popup] FEN:', res.fen);
   } catch (e) {
     setStatus(`Lỗi: ${e.message}`, 'err');
@@ -57,14 +65,14 @@ document.getElementById('readBoard').addEventListener('click', async () => {
 document.getElementById('suggest').addEventListener('click', async () => {
   setStatus('Đang đọc bàn cờ...');
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    const side = document.getElementById('side').value;
+    const tab = await activeTab();
+    const side = await resolveSide(tab, document.getElementById('side').value);
     const movetime = parseInt(document.getElementById('movetime').value, 10);
 
     const board = await chrome.tabs.sendMessage(tab.id, { type: 'READ_BOARD', side });
     if (!board.ok) { setStatus(`Đọc bàn lỗi: ${board.error}`, 'err'); return; }
 
-    setStatus(`Đang nghĩ (${movetime}ms)...`);
+    setStatus(`Đang nghĩ (${movetime}ms, lượt ${side})...`);
     const r = await fetch('http://127.0.0.1:8080/bestmove', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -78,9 +86,41 @@ document.getElementById('suggest').addEventListener('click', async () => {
     }
 
     await chrome.tabs.sendMessage(tab.id, { type: 'HIGHLIGHT_MOVE', uci: data.bestmove });
-    setStatus(`${data.bestmove} (${data.elapsed_ms}ms) — đã highlight 8s`, 'ok');
-    console.log('[popup] suggest:', data);
+    setStatus(`${data.bestmove} (${data.elapsed_ms}ms, lượt ${side})`, 'ok');
   } catch (e) {
     setStatus(`Lỗi: ${e.message}`, 'err');
   }
 });
+
+const autoBtn = document.getElementById('autoToggle');
+
+async function refreshAutoBtn() {
+  try {
+    const tab = await activeTab();
+    const st = await chrome.tabs.sendMessage(tab.id, { type: 'AUTO_STATE' });
+    autoBtn.textContent = st.enabled ? `Auto: ON (lượt ${st.userSide})` : 'Auto: OFF';
+  } catch {
+    autoBtn.textContent = 'Auto: OFF';
+  }
+}
+
+autoBtn.addEventListener('click', async () => {
+  try {
+    const tab = await activeTab();
+    const st = await chrome.tabs.sendMessage(tab.id, { type: 'AUTO_STATE' });
+    if (st.enabled) {
+      await chrome.tabs.sendMessage(tab.id, { type: 'AUTO_STOP' });
+      setStatus('Auto OFF', 'ok');
+    } else {
+      const movetime = parseInt(document.getElementById('movetime').value, 10);
+      const res = await chrome.tabs.sendMessage(tab.id, { type: 'AUTO_START', movetime });
+      if (!res.ok) { setStatus(`Lỗi: ${res.error}`, 'err'); return; }
+      setStatus(`Auto ON, lượt user = ${res.userSide}`, 'ok');
+    }
+    refreshAutoBtn();
+  } catch (e) {
+    setStatus(`Lỗi: ${e.message}`, 'err');
+  }
+});
+
+refreshAutoBtn();

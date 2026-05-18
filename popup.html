@@ -17,18 +17,20 @@
   <button id="testEngine">Test Pikafish server</button>
   <button id="readBoard">Đọc thế cờ → FEN</button>
   <button id="suggest">Gợi ý nước đi</button>
+  <button id="autoToggle">Auto: OFF</button>
   <label style="font-size:12px; display:block; margin-top:6px;">
-    Lượt:
-    <select id="side">
-      <option value="w">Đỏ (w)</option>
-      <option value="b">Đen (b)</option>
-    </select>
     Time:
     <select id="movetime">
       <option value="500">0.5s</option>
       <option value="1000" selected>1s</option>
       <option value="2000">2s</option>
       <option value="5000">5s</option>
+    </select>
+    <span style="margin-left:8px;">Lượt:</span>
+    <select id="side">
+      <option value="auto" selected>Auto</option>
+      <option value="w">Đỏ (w)</option>
+      <option value="b">Đen (b)</option>
     </select>
   </label>
   <div id="status">Sẵn sàng.</div>
