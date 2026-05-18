@@ -181,6 +181,78 @@ function highlightMove(uci) {
 
 const STARTPOS_FEN = 'rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR';
 
+function dispatchMouse(el, type, x, y) {
+  el.dispatchEvent(new MouseEvent(type, {
+    bubbles: true, cancelable: true, view: window, button: 0,
+    clientX: x, clientY: y,
+  }));
+}
+
+function fireDrag(el, type, x, y, dataTransfer) {
+  const ev = new DragEvent(type, {
+    bubbles: true, cancelable: true, composed: true, view: window,
+    clientX: x, clientY: y, button: 0, dataTransfer,
+  });
+  try {
+    Object.defineProperty(ev, 'dataTransfer', { value: dataTransfer, writable: false });
+  } catch {}
+  el.dispatchEvent(ev);
+}
+
+function findPieceWrapperAt(file, uciRank) {
+  const userSide = getUserSide();
+  let pageR, pageColIdx;
+  if (userSide === 'b') { pageR = 10 - uciRank; pageColIdx = 8 - file; }
+  else { pageR = uciRank + 1; pageColIdx = file; }
+  const wrappers = document.querySelectorAll('#game-grid .pieces-container [class*="PieceWrapper"]');
+  let best = null, bestD = Infinity;
+  const sq = findSquareEl(file, uciRank);
+  if (!sq) return null;
+  const sr = sq.getBoundingClientRect();
+  const sx = sr.left + sr.width / 2, sy = sr.top + sr.height / 2;
+  for (const w of wrappers) {
+    const r = w.getBoundingClientRect();
+    const d = (r.left + r.width / 2 - sx) ** 2 + (r.top + r.height / 2 - sy) ** 2;
+    if (d < bestD) { bestD = d; best = w; }
+  }
+  if (best && bestD < (sr.width * sr.width) / 4) return best;
+  return null;
+}
+
+async function autoClickMove(uci) {
+  const mv = parseUciMove(uci);
+  if (!mv) return false;
+  const fromPiece = findPieceWrapperAt(mv.from.file, mv.from.rank);
+  const toSquare = findSquareEl(mv.to.file, mv.to.rank);
+  if (!fromPiece || !toSquare) {
+    console.warn('[auto-click] not found', { mv, fromPiece: !!fromPiece, toSquare: !!toSquare });
+    return false;
+  }
+  const dragEl = fromPiece.querySelector('.piece-drag-container') || fromPiece;
+  const fr = dragEl.getBoundingClientRect();
+  const tr = toSquare.getBoundingClientRect();
+  const fx = fr.left + fr.width / 2, fy = fr.top + fr.height / 2;
+  const tx = tr.left + tr.width / 2, ty = tr.top + tr.height / 2;
+
+  const dt = new DataTransfer();
+  try { dt.effectAllowed = 'move'; } catch {}
+  try { dt.setData('text/plain', 'piece'); } catch {}
+
+  dispatchMouse(dragEl, 'mousedown', fx, fy);
+  fireDrag(dragEl, 'dragstart', fx, fy, dt);
+  await new Promise(r => setTimeout(r, 50));
+
+  const dropTarget = document.elementFromPoint(tx, ty) || toSquare;
+  try { dt.dropEffect = 'move'; } catch {}
+  fireDrag(dropTarget, 'dragenter', tx, ty, dt);
+  fireDrag(dropTarget, 'dragover', tx, ty, dt);
+  await new Promise(r => setTimeout(r, 50));
+  fireDrag(dropTarget, 'drop', tx, ty, dt);
+  fireDrag(dragEl, 'dragend', tx, ty, dt);
+  dispatchMouse(dropTarget, 'mouseup', tx, ty);
+  return true;
+}
+
 const AUTO = {
   enabled: false,
   movetime: 1000,
@@ -189,6 +261,8 @@ const AUTO = {
   prevFen: null,
   pollTimer: null,
   busy: false,
+  autoClick: false,
+  clickDelayMs: 600,
 };
 
 function logStatus(extra = {}) {
@@ -246,6 +320,13 @@ async function autoTick() {
     if (data.bestmove && data.bestmove !== '(none)') {
       highlightMove(data.bestmove);
       console.log('[auto] suggest:', data.bestmove, `(${data.elapsed_ms}ms)`);
+      if (AUTO.autoClick) {
+        await new Promise(r => setTimeout(r, AUTO.clickDelayMs));
+        if (AUTO.enabled && AUTO.autoClick) {
+          const ok = await autoClickMove(data.bestmove);
+          console.log('[auto-click]', data.bestmove, '->', ok ? 'sent' : 'FAILED');
+        }
+      }
     }
   } catch (e) {
     console.warn('[auto] engine error:', e.message);
@@ -319,8 +400,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     sendResponse({ ok: true });
     return;
   }
+  if (msg.type === 'AUTO_CLICK_TOGGLE') {
+    AUTO.autoClick = !!msg.enabled;
+    if (typeof msg.delayMs === 'number') AUTO.clickDelayMs = msg.delayMs;
+    console.log('[auto-click] enabled=', AUTO.autoClick, 'delay=', AUTO.clickDelayMs);
+    sendResponse({ ok: true, autoClick: AUTO.autoClick, clickDelayMs: AUTO.clickDelayMs });
+    return;
+  }
   if (msg.type === 'AUTO_STATE') {
-    sendResponse({ ok: true, enabled: AUTO.enabled, userSide: AUTO.userSide });
+    sendResponse({
+      ok: true, enabled: AUTO.enabled, userSide: AUTO.userSide,
+      autoClick: AUTO.autoClick, clickDelayMs: AUTO.clickDelayMs,
+    });
     return;
   }
 });

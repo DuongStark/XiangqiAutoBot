@@ -93,14 +93,17 @@ document.getElementById('suggest').addEventListener('click', async () => {
 });
 
 const autoBtn = document.getElementById('autoToggle');
+const clickBtn = document.getElementById('clickToggle');
 
-async function refreshAutoBtn() {
+async function refreshButtons() {
   try {
     const tab = await activeTab();
     const st = await chrome.tabs.sendMessage(tab.id, { type: 'AUTO_STATE' });
-    autoBtn.textContent = st.enabled ? `Auto: ON (lượt ${st.userSide})` : 'Auto: OFF';
+    autoBtn.textContent = st.enabled ? `Auto-suggest: ON (${st.userSide})` : 'Auto-suggest: OFF';
+    clickBtn.textContent = st.autoClick ? `Auto-click: ON (${st.clickDelayMs}ms)` : 'Auto-click: OFF';
   } catch {
-    autoBtn.textContent = 'Auto: OFF';
+    autoBtn.textContent = 'Auto-suggest: OFF';
+    clickBtn.textContent = 'Auto-click: OFF';
   }
 }
 
@@ -110,17 +113,32 @@ autoBtn.addEventListener('click', async () => {
     const st = await chrome.tabs.sendMessage(tab.id, { type: 'AUTO_STATE' });
     if (st.enabled) {
       await chrome.tabs.sendMessage(tab.id, { type: 'AUTO_STOP' });
-      setStatus('Auto OFF', 'ok');
+      setStatus('Auto-suggest OFF', 'ok');
     } else {
       const movetime = parseInt(document.getElementById('movetime').value, 10);
       const res = await chrome.tabs.sendMessage(tab.id, { type: 'AUTO_START', movetime });
       if (!res.ok) { setStatus(`Lỗi: ${res.error}`, 'err'); return; }
-      setStatus(`Auto ON, lượt user = ${res.userSide}`, 'ok');
+      setStatus(`Auto-suggest ON, lượt user = ${res.userSide}`, 'ok');
     }
-    refreshAutoBtn();
+    refreshButtons();
   } catch (e) {
     setStatus(`Lỗi: ${e.message}`, 'err');
   }
 });
 
-refreshAutoBtn();
+clickBtn.addEventListener('click', async () => {
+  try {
+    const tab = await activeTab();
+    const st = await chrome.tabs.sendMessage(tab.id, { type: 'AUTO_STATE' });
+    const delayMs = parseInt(document.getElementById('clickDelay').value, 10);
+    const res = await chrome.tabs.sendMessage(tab.id, {
+      type: 'AUTO_CLICK_TOGGLE', enabled: !st.autoClick, delayMs,
+    });
+    setStatus(res.autoClick ? `Auto-click ON (${res.clickDelayMs}ms)` : 'Auto-click OFF', 'ok');
+    refreshButtons();
+  } catch (e) {
+    setStatus(`Lỗi: ${e.message}`, 'err');
+  }
+});
+
+refreshButtons();
