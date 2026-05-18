@@ -179,6 +179,8 @@ function highlightMove(uci) {
   return true;
 }
 
+const STARTPOS_FEN = 'rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR';
+
 const STATUS_ID = 'xq-bot-status';
 
 function ensureStatusEl() {
@@ -187,14 +189,27 @@ function ensureStatusEl() {
   el = document.createElement('div');
   el.id = STATUS_ID;
   Object.assign(el.style, {
-    position: 'fixed', top: '12px', right: '12px', zIndex: 99999,
-    background: 'rgba(20, 20, 25, 0.85)', color: '#eee',
-    font: '12px/1.4 system-ui, sans-serif',
-    padding: '8px 12px', borderRadius: '6px',
-    minWidth: '160px', pointerEvents: 'none',
-    boxShadow: '0 2px 8px rgba(0,0,0,0.4)',
-    backdropFilter: 'blur(4px)',
+    position: 'fixed', top: '16px', left: '16px', zIndex: 99999,
+    minWidth: '200px', maxWidth: '280px',
+    background: 'linear-gradient(135deg, rgba(15,23,42,0.92) 0%, rgba(30,41,59,0.92) 100%)',
+    color: '#f1f5f9',
+    font: '500 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif',
+    padding: '12px 14px', borderRadius: '10px',
+    border: '1px solid rgba(148,163,184,0.18)',
+    boxShadow: '0 8px 24px -6px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.04) inset',
+    backdropFilter: 'blur(10px) saturate(1.4)',
+    WebkitBackdropFilter: 'blur(10px) saturate(1.4)',
+    pointerEvents: 'none',
+    transition: 'opacity 0.18s ease',
+    letterSpacing: '0.01em',
   });
+  el.innerHTML = `
+    <div class="xq-bot-header" style="display:flex; align-items:center; gap:8px; margin-bottom:8px; padding-bottom:8px; border-bottom:1px solid rgba(148,163,184,0.15);">
+      <div style="width:8px; height:8px; border-radius:50%; background:#22c55e; box-shadow:0 0 8px #22c55e;"></div>
+      <div style="font-size:11px; font-weight:600; letter-spacing:0.08em; color:#94a3b8; text-transform:uppercase;">Xiangqi Bot</div>
+    </div>
+    <div class="xq-bot-body"></div>
+  `;
   document.body.appendChild(el);
   return el;
 }
@@ -204,7 +219,9 @@ function setBotStatus(html) {
     document.getElementById(STATUS_ID)?.remove();
     return;
   }
-  ensureStatusEl().innerHTML = html;
+  const el = ensureStatusEl();
+  const body = el.querySelector('.xq-bot-body');
+  if (body) body.innerHTML = html;
 }
 
 let countdownTimer = null;
@@ -215,9 +232,13 @@ function startCountdown(label, totalMs, color = '#7dd3fc') {
   const tick = () => {
     const remain = Math.max(0, totalMs - (performance.now() - start));
     const sec = (remain / 1000).toFixed(1);
+    const pct = Math.max(0, Math.min(100, ((totalMs - remain) / totalMs) * 100));
     setBotStatus(
-      `<div style="color:${color}; font-weight:600;">${label}</div>` +
-      `<div style="font-size:18px; font-variant-numeric: tabular-nums;">${sec}s</div>`
+      `<div style="color:${color}; font-weight:600; font-size:14px;">${label}</div>` +
+      `<div style="font-size:22px; font-weight:700; font-variant-numeric:tabular-nums; color:#f8fafc; margin-top:2px;">${sec}<span style="font-size:13px; color:#94a3b8; font-weight:500;">s</span></div>` +
+      `<div style="margin-top:8px; height:3px; background:rgba(148,163,184,0.15); border-radius:2px; overflow:hidden;">` +
+        `<div style="width:${pct}%; height:100%; background:${color}; border-radius:2px; transition:width 0.1s linear;"></div>` +
+      `</div>`
     );
     if (remain <= 0) { clearInterval(countdownTimer); countdownTimer = null; }
   };
@@ -404,7 +425,10 @@ async function autoTick() {
     ? (diff.mover === 'w' ? 'b' : 'w')
     : (fen === STARTPOS_FEN ? 'w' : AUTO.userSide);
   if (sideToMove !== AUTO.userSide) {
-    setBotStatus(`<div style="color:#94a3b8;">⌛ Đợi đối thủ...</div>`);
+    setBotStatus(
+      `<div><div style="font-size:13px; font-weight:600; color:#cbd5e1;">Đợi đối thủ</div>` +
+      `<div style="font-size:11px; color:#64748b; margin-top:2px;">họ đang suy nghĩ...</div></div>`
+    );
     console.log('[auto] đối thủ vừa đi, đợi lượt user. moved=', diff.mover);
     return;
   }
@@ -418,8 +442,8 @@ async function autoTick() {
       : AUTO.movetime;
 
     setBotStatus(
-      `<div style="color:#fbbf24; font-weight:600;">🤔 Đang phân tích...</div>` +
-      `<div style="font-size:11px; color:#94a3b8;">engine: ${movetime}ms</div>`
+      `<div><div style="font-size:13px; font-weight:600; color:#fbbf24;">Đang phân tích</div>` +
+      `<div style="font-size:11px; color:#64748b; margin-top:2px;">engine: ${movetime}ms</div></div>`
     );
 
     const r = await fetch('http://127.0.0.1:8080/bestmove', {
@@ -446,14 +470,21 @@ async function autoTick() {
           : ((data.score ?? 0) / 100).toFixed(2);
 
         startCountdown(
-          `🎯 ${data.bestmove} (${scoreStr})`,
+          `${data.bestmove}  ·  ${scoreStr}`,
           delay,
           difficulty === 'cân nhắc' ? '#f87171' : difficulty === 'rõ ràng' ? '#86efac' : '#7dd3fc'
         );
         setTimeout(() => {
           const el = document.getElementById(STATUS_ID);
-          if (el) {
-            el.innerHTML += `<div style="font-size:11px; color:#94a3b8; margin-top:2px;">${phase} · ${difficulty}</div>`;
+          const body = el?.querySelector('.xq-bot-body');
+          if (body) {
+            body.insertAdjacentHTML('beforeend',
+              `<div style="font-size:11px; color:#64748b; margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;">` +
+                `<span style="background:rgba(148,163,184,0.12); padding:2px 6px; border-radius:4px;">${phase}</span>` +
+                `<span style="background:rgba(148,163,184,0.12); padding:2px 6px; border-radius:4px;">${difficulty}</span>` +
+                `<span style="background:rgba(148,163,184,0.12); padding:2px 6px; border-radius:4px;">d=${data.depth}</span>` +
+              `</div>`
+            );
           }
         }, 50);
 
@@ -463,8 +494,8 @@ async function autoTick() {
           const ok = await autoClickMove(data.bestmove);
           stopCountdown();
           setBotStatus(
-            `<div style="color:#86efac; font-weight:600;">✓ ${data.bestmove}</div>` +
-            `<div style="font-size:11px; color:#94a3b8;">${phase} · ${difficulty} · ${scoreStr}</div>`
+            `<div><div style="font-size:14px; font-weight:700; color:#86efac;">${data.bestmove}</div>` +
+            `<div style="font-size:11px; color:#64748b; margin-top:2px;">eval ${scoreStr} · ${phase}</div></div>`
           );
           console.log('[auto-click]', data.bestmove, '->', ok ? 'sent' : 'FAILED');
         }
@@ -473,13 +504,16 @@ async function autoTick() {
           ? (data.score > 0 ? 'M' : '-M')
           : ((data.score ?? 0) / 100).toFixed(2);
         setBotStatus(
-          `<div style="color:#86efac; font-weight:600;">→ ${data.bestmove}</div>` +
-          `<div style="font-size:11px; color:#94a3b8;">eval: ${scoreStr} · d=${data.depth}</div>`
+          `<div><div style="font-size:14px; font-weight:700; color:#86efac;">${data.bestmove}</div>` +
+          `<div style="font-size:11px; color:#64748b; margin-top:2px;">eval ${scoreStr} · d=${data.depth}</div></div>`
         );
       }
     }
   } catch (e) {
-    setBotStatus(`<div style="color:#f87171;">⚠ Lỗi engine</div><div style="font-size:11px;">${e.message}</div>`);
+    setBotStatus(
+      `<div><div style="font-size:13px; font-weight:600; color:#f87171;">Lỗi engine</div>` +
+      `<div style="font-size:11px; color:#64748b; margin-top:2px;">${e.message}</div></div>`
+    );
     console.warn('[auto] engine error:', e.message);
   } finally {
     AUTO.busy = false;
