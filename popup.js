@@ -94,6 +94,7 @@ document.getElementById('suggest').addEventListener('click', async () => {
 
 const autoBtn = document.getElementById('autoToggle');
 const clickBtn = document.getElementById('clickToggle');
+const adaptiveBtn = document.getElementById('adaptiveToggle');
 
 async function refreshButtons() {
   try {
@@ -101,9 +102,11 @@ async function refreshButtons() {
     const st = await chrome.tabs.sendMessage(tab.id, { type: 'AUTO_STATE' });
     autoBtn.textContent = st.enabled ? `Auto-suggest: ON (${st.userSide})` : 'Auto-suggest: OFF';
     clickBtn.textContent = st.autoClick ? `Auto-click: ON (${st.clickDelayMs}ms)` : 'Auto-click: OFF';
+    adaptiveBtn.textContent = st.adaptive ? 'Adaptive: ON' : 'Adaptive: OFF';
   } catch {
     autoBtn.textContent = 'Auto-suggest: OFF';
     clickBtn.textContent = 'Auto-click: OFF';
+    adaptiveBtn.textContent = 'Adaptive: ON';
   }
 }
 
@@ -135,6 +138,20 @@ clickBtn.addEventListener('click', async () => {
       type: 'AUTO_CLICK_TOGGLE', enabled: !st.autoClick, delayMs,
     });
     setStatus(res.autoClick ? `Auto-click ON (${res.clickDelayMs}ms)` : 'Auto-click OFF', 'ok');
+    refreshButtons();
+  } catch (e) {
+    setStatus(`Lỗi: ${e.message}`, 'err');
+  }
+});
+
+adaptiveBtn.addEventListener('click', async () => {
+  try {
+    const tab = await activeTab();
+    const st = await chrome.tabs.sendMessage(tab.id, { type: 'AUTO_STATE' });
+    const res = await chrome.tabs.sendMessage(tab.id, {
+      type: 'ADAPTIVE_TOGGLE', enabled: !st.adaptive,
+    });
+    setStatus(res.adaptive ? 'Adaptive ON (engine + delay tự thích nghi)' : 'Adaptive OFF (dùng giá trị cố định)', 'ok');
     refreshButtons();
   } catch (e) {
     setStatus(`Lỗi: ${e.message}`, 'err');

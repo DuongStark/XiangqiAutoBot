@@ -32,6 +32,7 @@ class Engine:
         self.lock = threading.Lock()
         self._send("uci")
         self._read_until("uciok")
+        self._send("setoption name MultiPV value 2")
         self._send("isready")
         self._read_until("readyok")
         print(f"[engine] ready: {exe_path}")
@@ -52,6 +53,30 @@ class Engine:
             if line.startswith(marker) or line == marker:
                 return lines if collect else line
 
+    @staticmethod
+    def _score_from_info(line: str) -> int | None:
+        """Tra ve score (cp) tu dong info, mate quy thanh +/-100000."""
+        parts = line.split()
+        try:
+            i = parts.index("score")
+            kind, val = parts[i + 1], int(parts[i + 2])
+            if kind == "cp":
+                return val
+            if kind == "mate":
+                return 100000 if val > 0 else -100000
+        except (ValueError, IndexError):
+            return None
+        return None
+
+    @staticmethod
+    def _multipv_from_info(line: str) -> int | None:
+        parts = line.split()
+        try:
+            i = parts.index("multipv")
+            return int(parts[i + 1])
+        except (ValueError, IndexError):
+            return None
+
     def bestmove(self, fen: str, movetime_ms: int = 1000, depth: int | None = None) -> dict:
         with self.lock:
             self._send("ucinewgame")
@@ -65,8 +90,34 @@ class Engine:
             lines = self._read_until("bestmove", collect=True)
             best_line = lines[-1]
             best = best_line.split()[1] if len(best_line.split()) > 1 else None
-            last_info = next((l for l in reversed(lines) if l.startswith("info depth")), "")
-            return {"bestmove": best, "info": last_info}
+
+            pv_scores: dict[int, int] = {}
+            last_depth = 0
+            for l in lines:
+                if not l.startswith("info") or "score" not in l or "multipv" not in l:
+                    continue
+                pv = self._multipv_from_info(l)
+                sc = self._score_from_info(l)
+                if pv is not None and sc is not None:
+                    pv_scores[pv] = sc
+                if " depth " in l:
+                    try:
+                        d = int(l.split(" depth ")[1].split()[0])
+                        last_depth = max(last_depth, d)
+                    except (ValueError, IndexError):
+                        pass
+
+            best_score = pv_scores.get(1)
+            second_score = pv_scores.get(2)
+            gap = abs(best_score - second_score) if (best_score is not None and second_score is not None) else None
+
+            return {
+                "bestmove": best,
+                "score": best_score,
+                "second_score": second_score,
+                "gap": gap,
+                "depth": last_depth,
+            }
 
     def close(self):
         try:

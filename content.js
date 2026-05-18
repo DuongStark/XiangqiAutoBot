@@ -179,7 +179,55 @@ function highlightMove(uci) {
   return true;
 }
 
-const STARTPOS_FEN = 'rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR';
+const STATUS_ID = 'xq-bot-status';
+
+function ensureStatusEl() {
+  let el = document.getElementById(STATUS_ID);
+  if (el) return el;
+  el = document.createElement('div');
+  el.id = STATUS_ID;
+  Object.assign(el.style, {
+    position: 'fixed', top: '12px', right: '12px', zIndex: 99999,
+    background: 'rgba(20, 20, 25, 0.85)', color: '#eee',
+    font: '12px/1.4 system-ui, sans-serif',
+    padding: '8px 12px', borderRadius: '6px',
+    minWidth: '160px', pointerEvents: 'none',
+    boxShadow: '0 2px 8px rgba(0,0,0,0.4)',
+    backdropFilter: 'blur(4px)',
+  });
+  document.body.appendChild(el);
+  return el;
+}
+
+function setBotStatus(html) {
+  if (!html) {
+    document.getElementById(STATUS_ID)?.remove();
+    return;
+  }
+  ensureStatusEl().innerHTML = html;
+}
+
+let countdownTimer = null;
+
+function startCountdown(label, totalMs, color = '#7dd3fc') {
+  if (countdownTimer) clearInterval(countdownTimer);
+  const start = performance.now();
+  const tick = () => {
+    const remain = Math.max(0, totalMs - (performance.now() - start));
+    const sec = (remain / 1000).toFixed(1);
+    setBotStatus(
+      `<div style="color:${color}; font-weight:600;">${label}</div>` +
+      `<div style="font-size:18px; font-variant-numeric: tabular-nums;">${sec}s</div>`
+    );
+    if (remain <= 0) { clearInterval(countdownTimer); countdownTimer = null; }
+  };
+  tick();
+  countdownTimer = setInterval(tick, 100);
+}
+
+function stopCountdown() {
+  if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
+}
 
 function dispatchMouse(el, type, x, y) {
   el.dispatchEvent(new MouseEvent(type, {
@@ -217,6 +265,57 @@ function findPieceWrapperAt(file, uciRank) {
   }
   if (best && bestD < (sr.width * sr.width) / 4) return best;
   return null;
+}
+
+function logNormal(medianMs, sigma = 0.5) {
+  const u1 = Math.random() || 1e-9;
+  const u2 = Math.random();
+  const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+  return medianMs * Math.exp(sigma * z);
+}
+
+function pickThinkTime(plyCount) {
+  if (plyCount < 8) return 250 + Math.random() * 200;
+  if (plyCount < 20) return 600 + Math.random() * 500;
+  return 1000 + Math.random() * 1000;
+}
+
+function pickHumanDelay(gap, score, plyCount) {
+  const REACTION_MS = 400 + Math.random() * 250;
+
+  let median, sigma;
+  const phase = plyCount < 10 ? 'opening' : plyCount < 40 ? 'middle' : 'endgame';
+
+  if (Math.abs(score ?? 0) >= 90000) {
+    median = 1500; sigma = 0.4;
+  } else if (gap === null || gap === undefined) {
+    median = 4000; sigma = 0.6;
+  } else if (gap >= 400) {
+    median = 1500; sigma = 0.45;
+  } else if (gap >= 150) {
+    median = phase === 'opening' ? 2000 : 5000;
+    sigma = 0.55;
+  } else {
+    median = phase === 'opening' ? 3000 : phase === 'middle' ? 9000 : 5000;
+    sigma = 0.7;
+  }
+
+  if (phase === 'opening' && plyCount < 6) median = Math.min(median, 1800);
+
+  let t = logNormal(median, sigma);
+
+  if (Math.random() < 0.05) t *= 2 + Math.random() * 2;
+
+  return Math.max(REACTION_MS, Math.min(t, 90000));
+}
+
+function countPliesFromFen(fen) {
+  const startBoard = 'rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR';
+  if (fen === startBoard) return 0;
+  const startPieces = startBoard.replace(/[\d/]/g, '').length;
+  const currPieces = fen.replace(/[\d/]/g, '').length;
+  const captured = startPieces - currPieces;
+  return Math.max(captured * 2, 1);
 }
 
 async function autoClickMove(uci) {
@@ -263,6 +362,7 @@ const AUTO = {
   busy: false,
   autoClick: false,
   clickDelayMs: 600,
+  adaptive: true,
 };
 
 function logStatus(extra = {}) {
@@ -304,6 +404,7 @@ async function autoTick() {
     ? (diff.mover === 'w' ? 'b' : 'w')
     : (fen === STARTPOS_FEN ? 'w' : AUTO.userSide);
   if (sideToMove !== AUTO.userSide) {
+    setBotStatus(`<div style="color:#94a3b8;">⌛ Đợi đối thủ...</div>`);
     console.log('[auto] đối thủ vừa đi, đợi lượt user. moved=', diff.mover);
     return;
   }
@@ -311,24 +412,74 @@ async function autoTick() {
 
   AUTO.busy = true;
   try {
+    const plies = countPliesFromFen(fen);
+    const movetime = AUTO.adaptive
+      ? Math.round(pickThinkTime(plies))
+      : AUTO.movetime;
+
+    setBotStatus(
+      `<div style="color:#fbbf24; font-weight:600;">🤔 Đang phân tích...</div>` +
+      `<div style="font-size:11px; color:#94a3b8;">engine: ${movetime}ms</div>`
+    );
+
     const r = await fetch('http://127.0.0.1:8080/bestmove', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ fen: `${fen} ${sideToMove} - - 0 1`, movetime: AUTO.movetime }),
+      body: JSON.stringify({ fen: `${fen} ${sideToMove} - - 0 1`, movetime }),
     });
     const data = await r.json();
     if (data.bestmove && data.bestmove !== '(none)') {
       highlightMove(data.bestmove);
-      console.log('[auto] suggest:', data.bestmove, `(${data.elapsed_ms}ms)`);
+      console.log('[auto] suggest:', data.bestmove,
+        `score=${data.score} gap=${data.gap} d=${data.depth} t=${movetime}ms`);
+
       if (AUTO.autoClick) {
-        await new Promise(r => setTimeout(r, AUTO.clickDelayMs));
+        const delay = AUTO.adaptive
+          ? Math.round(pickHumanDelay(data.gap, data.score, plies))
+          : AUTO.clickDelayMs;
+        const phase = plies < 10 ? 'khai cuộc' : plies < 40 ? 'trung cuộc' : 'tàn cuộc';
+        const difficulty = data.gap === null ? '?' :
+          data.gap >= 400 ? 'rõ ràng' :
+          data.gap >= 150 ? 'bình thường' : 'cân nhắc';
+        const scoreStr = Math.abs(data.score ?? 0) >= 90000
+          ? (data.score > 0 ? 'M' : '-M')
+          : ((data.score ?? 0) / 100).toFixed(2);
+
+        startCountdown(
+          `🎯 ${data.bestmove} (${scoreStr})`,
+          delay,
+          difficulty === 'cân nhắc' ? '#f87171' : difficulty === 'rõ ràng' ? '#86efac' : '#7dd3fc'
+        );
+        setTimeout(() => {
+          const el = document.getElementById(STATUS_ID);
+          if (el) {
+            el.innerHTML += `<div style="font-size:11px; color:#94a3b8; margin-top:2px;">${phase} · ${difficulty}</div>`;
+          }
+        }, 50);
+
+        console.log('[auto-click] delay=', delay, 'ms', `(phase=${phase}, ${difficulty})`);
+        await new Promise(r => setTimeout(r, delay));
         if (AUTO.enabled && AUTO.autoClick) {
           const ok = await autoClickMove(data.bestmove);
+          stopCountdown();
+          setBotStatus(
+            `<div style="color:#86efac; font-weight:600;">✓ ${data.bestmove}</div>` +
+            `<div style="font-size:11px; color:#94a3b8;">${phase} · ${difficulty} · ${scoreStr}</div>`
+          );
           console.log('[auto-click]', data.bestmove, '->', ok ? 'sent' : 'FAILED');
         }
+      } else {
+        const scoreStr = Math.abs(data.score ?? 0) >= 90000
+          ? (data.score > 0 ? 'M' : '-M')
+          : ((data.score ?? 0) / 100).toFixed(2);
+        setBotStatus(
+          `<div style="color:#86efac; font-weight:600;">→ ${data.bestmove}</div>` +
+          `<div style="font-size:11px; color:#94a3b8;">eval: ${scoreStr} · d=${data.depth}</div>`
+        );
       }
     }
   } catch (e) {
+    setBotStatus(`<div style="color:#f87171;">⚠ Lỗi engine</div><div style="font-size:11px;">${e.message}</div>`);
     console.warn('[auto] engine error:', e.message);
   } finally {
     AUTO.busy = false;
@@ -356,6 +507,8 @@ function startAuto({ movetime = 1000 } = {}) {
 function stopAuto() {
   AUTO.enabled = false;
   if (AUTO.pollTimer) { clearInterval(AUTO.pollTimer); AUTO.pollTimer = null; }
+  stopCountdown();
+  setBotStatus(null);
   clearHighlights();
   console.log('[auto] stopped');
 }
@@ -407,10 +560,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     sendResponse({ ok: true, autoClick: AUTO.autoClick, clickDelayMs: AUTO.clickDelayMs });
     return;
   }
+  if (msg.type === 'ADAPTIVE_TOGGLE') {
+    AUTO.adaptive = !!msg.enabled;
+    console.log('[auto] adaptive=', AUTO.adaptive);
+    sendResponse({ ok: true, adaptive: AUTO.adaptive });
+    return;
+  }
   if (msg.type === 'AUTO_STATE') {
     sendResponse({
       ok: true, enabled: AUTO.enabled, userSide: AUTO.userSide,
       autoClick: AUTO.autoClick, clickDelayMs: AUTO.clickDelayMs,
+      adaptive: AUTO.adaptive,
     });
     return;
   }
