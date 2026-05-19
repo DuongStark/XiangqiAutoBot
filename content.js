@@ -208,7 +208,7 @@ function ensureStatusEl() {
   el.innerHTML = `
     <div class="xq-bot-header" style="display:flex; align-items:center; gap:8px; margin-bottom:8px; padding-bottom:8px; border-bottom:1px solid rgba(74,36,23,0.18);">
       <div style="width:18px; height:18px; display:grid; place-items:center; border-radius:50%; background:#a62018; color:#ffe8bd; font:800 11px/1 'Microsoft YaHei', serif;">&#24101;</div>
-      <div style="font-size:11px; font-weight:800; letter-spacing:0.08em; color:#4a2417; text-transform:uppercase;">Xiangqi Bot</div>
+      <div style="font-size:11px; font-weight:800; letter-spacing:0.08em; color:#4a2417; text-transform:uppercase;">Xiangqi Analysis Helper</div>
     </div>
     <div class="xq-bot-body"></div>
   `;

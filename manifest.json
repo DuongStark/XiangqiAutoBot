@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Xiangqi Bot Helper",
+  "name": "Xiangqi Analysis Helper",
   "version": "0.1.0",
-  "description": "Hoc tap: phan tich the co va goi y nuoc di voi Pikafish",
+  "description": "Local Xiangqi board analysis helper powered by Pikafish",
   "icons": {
     "16": "icons/icon-16.png",
     "32": "icons/icon-32.png",
@@ -23,7 +23,7 @@
   ],
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Xiangqi Bot",
+    "default_title": "Xiangqi Analysis Helper",
     "default_icon": {
       "16": "icons/icon-16.png",
       "32": "icons/icon-32.png",

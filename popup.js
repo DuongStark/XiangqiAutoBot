@@ -19,7 +19,7 @@ function setRunState(enabled, side) {
   const label = enabled ? `Running ${side || ''}`.trim() : 'Idle';
   runStateEl.className = enabled ? 'pill on' : 'pill';
   runStateEl.innerHTML = `<span class="dot"></span><span>${label}</span>`;
-  startBtn.textContent = enabled ? 'Stop bot' : 'Start bot';
+  startBtn.textContent = enabled ? 'Stop helper' : 'Start helper';
   startBtn.classList.toggle('stop', !!enabled);
 }
 
@@ -92,7 +92,7 @@ async function startBot(tab) {
   }
 
   await chrome.tabs.sendMessage(tab.id, { type: 'AUTO_CLICK_TOGGLE', enabled: true });
-  setStatus(`Bot started (${auto.userSide})`, 'ok');
+  setStatus(`Helper started (${auto.userSide})`, 'ok');
 }
 
 startBtn.addEventListener('click', async () => {
@@ -102,7 +102,7 @@ startBtn.addEventListener('click', async () => {
 
     if (st.enabled) {
       await chrome.tabs.sendMessage(tab.id, { type: 'AUTO_STOP' });
-      setStatus('Bot stopped.', 'ok');
+      setStatus('Helper stopped.', 'ok');
     } else {
       await startBot(tab);
     }

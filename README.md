@@ -1,11 +1,11 @@
 <p align="center">
-  <img src="icons/icon-128.png" width="92" height="92" alt="Xiangqi Bot Helper icon">
+  <img src="icons/icon-128.png" width="92" height="92" alt="Xiangqi Analysis Helper icon">
 </p>
 
-<h1 align="center">Xiangqi Bot Helper</h1>
+<h1 align="center">Xiangqi Analysis Helper</h1>
 
 <p align="center">
-  A Chrome extension and local Pikafish server for reading a Xiangqi board, analyzing positions, and playing moves on <code>play.xiangqi.com</code>.
+  A Chrome extension and local Pikafish server for reading a Xiangqi board, analyzing positions, and highlighting or playing moves locally.
 </p>
 
 <p align="center">
@@ -16,7 +16,7 @@
 </p>
 
 <p align="center">
-  <img src="assets/demo.gif" alt="Xiangqi Bot Helper demo">
+  <img src="assets/demo.gif" alt="Xiangqi Analysis Helper demo">
 </p>
 
 ---
@@ -25,7 +25,7 @@
 
 This project started with a simple question:
 
-> Can a Chrome extension read a live Xiangqi board, ask a real engine for a move, and play it back on the website?
+> Can a Chrome extension read a live Xiangqi board, ask a real engine for a move, and surface it back in the browser?
 
 The answer is yes, but the interesting part is not only the engine. The real work is making the browser side reliable:
 
@@ -34,7 +34,7 @@ The answer is yes, but the interesting part is not only the engine. The real wor
 - converting pieces into Xiangqi FEN,
 - keeping a local UCI engine alive,
 - simulating drag-and-drop moves,
-- and making the bot feel controllable instead of mysterious.
+- and making the helper feel controllable instead of mysterious.
 
 This is a learning and local-testing project. Do not use engine assistance against real players.
 
@@ -131,14 +131,14 @@ Keep this terminal open while using the extension.
 
 ### 4. Start a game board
 
-Open `https://play.xiangqi.com`, enter a board, click the extension icon, then press `Start bot`.
+Open `https://play.xiangqi.com`, enter a board, click the extension icon, then press `Start helper`.
 
-If it stops moving, press `Stop bot`, then `Start bot` again.
+If it stops moving, press `Stop helper`, then `Start helper` again.
 
 ## Project Structure
 
 ```text
-xiangqi-bot/
+XiangqiAnalysisHelper/
 |-- assets/
 |   `-- readme-preview.png
 |-- icons/
@@ -147,7 +147,7 @@ xiangqi-bot/
 |   |-- icon-48.png
 |   `-- icon-128.png
 |-- engine/                 ignored by git, created by download_engine.py
-|-- content.js              board reading, overlay, bot loop, auto move
+|-- content.js              board reading, overlay, helper loop, auto move
 |-- download_engine.py      downloads Pikafish
 |-- manifest.json           Chrome MV3 manifest
 |-- popup.html              extension popup UI
@@ -167,7 +167,7 @@ Fix:
 
 1. Enter an actual game board.
 2. Refresh the page.
-3. Press `Stop bot`, then `Start bot`.
+3. Press `Stop helper`, then `Start helper`.
 
 ### Server is not running
 
