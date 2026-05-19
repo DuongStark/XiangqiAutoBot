@@ -1,49 +1,41 @@
 # Xiangqi Bot Helper
 
-Chrome extension học tập: đọc thế cờ trên play.xiangqi.com → gọi Pikafish (qua Python local server) → highlight nước đi gợi ý lên bàn cờ.
+Chrome extension học tập cho `play.xiangqi.com`: đọc bàn cờ, gọi Pikafish qua server local, rồi gợi ý hoặc tự đi nước.
 
-**Mục đích:** học về DOM parsing, UCI protocol, browser extension. Chỉ dùng để tự test với máy/bot, không dùng để đấu người thật.
+Mục tiêu chính là test local / luyện với bot. Không dùng để đánh người thật.
 
 ## Cấu trúc
 
-```
+```text
 xiangqi-bot/
-├── engine/                 (gitignored — chạy download_engine.py để tải)
-│   ├── pikafish.exe
-│   └── pikafish.nnue
-├── manifest.json           Extension manifest (MV3)
-├── content.js              Đọc DOM → FEN, highlight overlay
-├── popup.html / popup.js   UI nút bấm
-├── background.js           Service worker
-├── server.py               HTTP wrapper quanh Pikafish (port 8080)
-└── download_engine.py      Tải Pikafish binary từ GitHub release
+├── engine/                 gitignored, tải bằng download_engine.py
+├── icons/                  icon extension
+├── manifest.json           Chrome MV3 manifest
+├── content.js              đọc DOM, FEN, highlight, auto move
+├── popup.html / popup.js   giao diện extension
+├── server.py               HTTP wrapper quanh Pikafish
+└── download_engine.py      tải Pikafish binary
 ```
 
-## Cài đặt
+## Chạy
 
-**1. Tải engine:**
+Tải engine:
+
 ```powershell
 python download_engine.py
 ```
 
-**2. Load extension:**
-- Mở `chrome://extensions` → bật Developer mode
-- Load unpacked → chọn thư mục này
+Chạy server:
 
-## Sử dụng
-
-**1. Chạy server (terminal riêng):**
 ```powershell
 python server.py
 ```
 
-**2. Mở play.xiangqi.com, click icon extension:**
-- **Test content script** — verify content script đã chạy
-- **Test Pikafish server** — verify server + engine OK
-- **Đọc thế cờ → FEN** — parse bàn cờ thành FEN
-- **Gợi ý nước đi** — chọn lượt + thinking time, bấm để highlight nước đi tốt nhất (vàng = từ, đỏ = đến)
+Load extension:
 
-## Lưu ý
+1. Mở `chrome://extensions`
+2. Bật `Developer mode`
+3. Chọn `Load unpacked`
+4. Chọn thư mục repo này
 
-- CPU mặc định dùng `pikafish-bmi2.exe` (Intel/AMD đời mới có BMI2). Nếu CPU cũ hơn, sửa `CPU_BUILD` trong `download_engine.py` thành `pikafish-sse41-popcnt.exe`.
-- Phải tự chọn lượt (đỏ/đen) trong popup — chưa auto detect.
+Sau đó mở `play.xiangqi.com`, bấm icon extension, rồi `Start bot`.

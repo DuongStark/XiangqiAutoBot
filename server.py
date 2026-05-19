@@ -39,41 +39,23 @@ def variety_config(plies: int) -> tuple[int, int]:
         return 3, 30
     return 2, 0
 
-def strength_config(strength: int, plies: int) -> tuple[int, int]:
-    """Map muc Elo tap luyen sang (multipv, max_drop_cp)."""
-    if strength >= 2600:
-        return 4, 70
-    if strength >= 2200:
-        return 5, 130
-    if strength >= 1800:
-        return 6, 220
-    if strength >= 1400:
-        return 8, 350 if plies < 40 else 260
-    return 10, 520 if plies < 40 else 380
+def sparring_config(plies: int, skill: int) -> tuple[int, int]:
+    """Local sparring: chon trong nhom nuoc on, khong co tinh blunder."""
+    skill = max(1, min(5, skill))
+    table = {
+        1: (6, 180, 240, 180),
+        2: (6, 130, 180, 140),
+        3: (5, 90, 120, 100),
+        4: (4, 60, 80, 60),
+        5: (3, 35, 45, 35),
+    }
+    multipv, opening_gap, middle_gap, endgame_gap = table[skill]
+    if plies < 10:
+        return multipv, opening_gap
+    if plies < 40:
+        return multipv, middle_gap
+    return multipv, endgame_gap
 
-def strength_weights(strength: int, candidates: list[tuple[str, int, int]]) -> list[int]:
-    if strength >= 2600:
-        return [max(1, 14 - (k - 1) * 5) for _, _, k in candidates]
-    if strength >= 2200:
-        return [max(1, 10 - (k - 1) * 3) for _, _, k in candidates]
-    if strength >= 1800:
-        return [max(1, 8 - (k - 1) * 2) for _, _, k in candidates]
-    if strength >= 1400:
-        return [max(1, 5 - (k - 1)) for _, _, k in candidates]
-    return [2 if k == 1 else 3 for _, _, k in candidates]
-
-
-def mistake_config(strength: int) -> tuple[float, int, int]:
-    """Tra ve (rate, min_drop_cp, max_drop_cp) cho local sparring."""
-    if strength >= 2600:
-        return 0.03, 80, 160
-    if strength >= 2200:
-        return 0.08, 100, 240
-    if strength >= 1800:
-        return 0.16, 140, 420
-    if strength >= 1400:
-        return 0.28, 180, 700
-    return 0.42, 220, 1100
 
 class Engine:
     def __init__(self, exe_path: Path):
@@ -151,7 +133,7 @@ class Engine:
         except (ValueError, IndexError):
             return None
 
-    def bestmove(self, fen: str, movetime_ms: int = 1000, depth=None, plies: int = 0, record: bool = True, style: str = "best", strength: int = 2200) -> dict:
+    def bestmove(self, fen: str, movetime_ms: int = 1000, depth=None, plies: int = 0, record: bool = True, style: str = "best", skill: int = 4) -> dict:
         with self.lock:
             board = fen_board_only(fen)
 
@@ -160,7 +142,7 @@ class Engine:
                 self.played.clear()
 
             if style == "sparring":
-                multipv, max_gap = strength_config(strength, plies)
+                multipv, max_gap = sparring_config(plies, skill)
             else:
                 multipv, max_gap = variety_config(plies)
             self._set_multipv(multipv)
@@ -182,9 +164,7 @@ class Engine:
 
             already_played = self.played.get(board, set())
             candidates = []
-            mistake_candidates = []
             if best_score is not None and max_gap > 0:
-                mistake_rate, min_drop, max_drop = mistake_config(strength)
                 for k in sorted(pv_moves.keys()):
                     mv = pv_moves[k]
                     sc = pv_scores.get(k)
@@ -193,15 +173,12 @@ class Engine:
                     drop = abs(best_score - sc)
                     if drop <= max_gap:
                         candidates.append((mv, sc, k))
-                    elif style == "sparring" and min_drop <= drop <= max_drop:
-                        mistake_candidates.append((mv, sc, k))
 
             chosen = best
             chosen_score = best_score
             chosen_pv = 1
             avoided = False
             randomized = False
-            mistake = False
 
             if best in already_played:
                 fallback = next(((mv, sc, k) for mv, sc, k in candidates if mv != best), None)
@@ -214,19 +191,8 @@ class Engine:
                     chosen, chosen_score, chosen_pv = fallback
                     avoided = True
                     print(f"[engine] anti-repetition: {best} da choi roi -> chon PV{chosen_pv} {chosen}")
-            elif style == "sparring" and mistake_candidates and abs(best_score or 0) < 90000 and random.random() < mistake_rate:
-                pick = random.choice(mistake_candidates)
-                chosen, chosen_score, chosen_pv = pick
-                randomized = True
-                mistake = True
-                drop = abs((best_score or 0) - (chosen_score or 0))
-                print(f"[engine] soft-mistake: elo={strength}, plies={plies}, chon PV{chosen_pv} {chosen} (drop={drop}cp, score={chosen_score})")
             elif len(candidates) > 1:
-                if style == "sparring" and abs(best_score or 0) < 90000:
-                    weights = strength_weights(strength, candidates)
-                    pick = random.choices(candidates, weights=weights, k=1)[0]
-                else:
-                    pick = random.choice(candidates)
+                pick = random.choice(candidates)
                 if pick[0] != best:
                     chosen, chosen_score, chosen_pv = pick
                     randomized = True
@@ -247,10 +213,9 @@ class Engine:
                 "multipv": multipv,
                 "candidates": len(candidates),
                 "style": style,
-                "strength": strength,
+                "skill": skill,
                 "avoided_repetition": avoided,
                 "randomized": randomized,
-                "mistake": mistake,
             }
 
     def _parse_search(self, lines):
@@ -339,9 +304,9 @@ class Handler(BaseHTTPRequestHandler):
             plies = int(data.get("plies", 0))
             record = bool(data.get("record", True))
             style = data.get("style", "best")
-            strength = int(data.get("strength", 2200))
+            skill = int(data.get("skill", 4))
             t0 = time.time()
-            result = engine.bestmove(fen, movetime_ms=movetime, depth=depth, plies=plies, record=record, style=style, strength=strength)
+            result = engine.bestmove(fen, movetime_ms=movetime, depth=depth, plies=plies, record=record, style=style, skill=skill)
             result["elapsed_ms"] = int((time.time() - t0) * 1000)
             self._json(200, result)
         except Exception as e:

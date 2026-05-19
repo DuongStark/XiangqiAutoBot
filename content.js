@@ -95,10 +95,6 @@ function boardToFen(board) {
   }).join('/');
 }
 
-function readBoardToFen() {
-  return boardToFen(readBoard());
-}
-
 function whoJustMoved(prev, curr) {
   let changed = 0, mover = null;
   for (let r = 0; r < 10; r++) {
@@ -196,12 +192,12 @@ function ensureStatusEl() {
   Object.assign(el.style, {
     position: 'fixed', top: '16px', left: '16px', zIndex: 99999,
     minWidth: '200px', maxWidth: '280px',
-    background: 'linear-gradient(135deg, rgba(15,23,42,0.92) 0%, rgba(30,41,59,0.92) 100%)',
-    color: '#f1f5f9',
+    background: 'rgba(244,223,184,0.94)',
+    color: '#24120b',
     font: '500 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif',
-    padding: '12px 14px', borderRadius: '10px',
-    border: '1px solid rgba(148,163,184,0.18)',
-    boxShadow: '0 8px 24px -6px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.04) inset',
+    padding: '12px 14px', borderRadius: '8px',
+    border: '1px solid rgba(74,36,23,0.24)',
+    boxShadow: '0 8px 22px -8px rgba(36,18,11,0.45), inset 0 0 0 1px rgba(255,255,255,0.22)',
     backdropFilter: 'blur(10px) saturate(1.4)',
     WebkitBackdropFilter: 'blur(10px) saturate(1.4)',
     pointerEvents: 'none',
@@ -209,9 +205,9 @@ function ensureStatusEl() {
     letterSpacing: '0.01em',
   });
   el.innerHTML = `
-    <div class="xq-bot-header" style="display:flex; align-items:center; gap:8px; margin-bottom:8px; padding-bottom:8px; border-bottom:1px solid rgba(148,163,184,0.15);">
-      <div style="width:8px; height:8px; border-radius:50%; background:#22c55e; box-shadow:0 0 8px #22c55e;"></div>
-      <div style="font-size:11px; font-weight:600; letter-spacing:0.08em; color:#94a3b8; text-transform:uppercase;">Xiangqi Bot</div>
+    <div class="xq-bot-header" style="display:flex; align-items:center; gap:8px; margin-bottom:8px; padding-bottom:8px; border-bottom:1px solid rgba(74,36,23,0.18);">
+      <div style="width:18px; height:18px; display:grid; place-items:center; border-radius:50%; background:#a62018; color:#ffe8bd; font:800 11px/1 'Microsoft YaHei', serif;">&#24101;</div>
+      <div style="font-size:11px; font-weight:800; letter-spacing:0.08em; color:#4a2417; text-transform:uppercase;">Xiangqi Bot</div>
     </div>
     <div class="xq-bot-body"></div>
   `;
@@ -239,9 +235,9 @@ function startCountdown(label, totalMs, color = '#7dd3fc') {
     const sec = (remain / 1000).toFixed(1);
     const pct = Math.max(0, Math.min(100, ((totalMs - remain) / totalMs) * 100));
     setBotStatus(
-      `<div style="color:${color}; font-weight:600; font-size:14px;">${label}</div>` +
-      `<div style="font-size:22px; font-weight:700; font-variant-numeric:tabular-nums; color:#f8fafc; margin-top:2px;">${sec}<span style="font-size:13px; color:#94a3b8; font-weight:500;">s</span></div>` +
-      `<div style="margin-top:8px; height:3px; background:rgba(148,163,184,0.15); border-radius:2px; overflow:hidden;">` +
+      `<div style="color:${color}; font-weight:800; font-size:14px;">${label}</div>` +
+      `<div style="font-size:22px; font-weight:800; font-variant-numeric:tabular-nums; color:#24120b; margin-top:2px;">${sec}<span style="font-size:13px; color:#73513a; font-weight:600;">s</span></div>` +
+      `<div style="margin-top:8px; height:3px; background:rgba(74,36,23,0.16); border-radius:2px; overflow:hidden;">` +
         `<div style="width:${pct}%; height:100%; background:${color}; border-radius:2px; transition:width 0.1s linear;"></div>` +
       `</div>`
     );
@@ -301,58 +297,69 @@ function logNormal(medianMs, sigma = 0.5) {
 }
 
 function pickProbeTime(plyCount) {
-  if (plyCount < 8) return 700 + Math.random() * 500;
-  if (plyCount < 30) return 900 + Math.random() * 700;
-  return 800 + Math.random() * 600;
+  if (plyCount < 8) return 500 + Math.random() * 400;
+  if (plyCount < 40) return 700 + Math.random() * 500;
+  return 900 + Math.random() * 600;
 }
 
-function searchCapForStrength(strength) {
-  if (strength >= 2600) return 12000;
-  if (strength >= 2200) return 8000;
-  if (strength >= 1800) return 5000;
-  if (strength >= 1400) return 3500;
-  return 2500;
+function parseClockMs(text) {
+  const m = String(text || '').trim().match(/^(\d{1,2}):([0-5]\d)$/);
+  if (!m) return null;
+  return (parseInt(m[1], 10) * 60 + parseInt(m[2], 10)) * 1000;
 }
 
-function pickSearchTime(gap, score, plyCount, strength) {
+function readOwnClockMs() {
+  const times = [];
+  for (const el of document.querySelectorAll('body *')) {
+    const text = el.textContent;
+    if (!text || text.length > 5) continue;
+    const ms = parseClockMs(text);
+    if (ms === null) continue;
+    const rect = el.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) continue;
+    times.push({ ms, y: rect.top + rect.height / 2 });
+  }
+  times.sort((a, b) => b.y - a.y);
+  return times[0]?.ms ?? null;
+}
+
+function totalThinkCap(plyCount, remainingMs) {
+  if (remainingMs !== null && remainingMs < 30000) return 900;
+  if (plyCount < 10) return 3000;
+  if (plyCount < 40) return 5000;
+  return 7000;
+}
+
+function pickSearchTime(gap, score, plyCount, remainingMs) {
   const phase = plyCount < 10 ? 'opening' : plyCount < 40 ? 'middle' : 'endgame';
   let median, sigma;
 
-  if (phase === 'opening' && plyCount < 8 && Math.abs(score ?? 0) < 90000) {
-    if (gap === null || gap === undefined) {
-      median = 2200; sigma = 0.35;
-    } else if (gap >= 400) {
-      median = 1200; sigma = 0.25;
-    } else if (gap >= 150) {
-      median = 1700; sigma = 0.3;
-    } else {
-      median = 2200; sigma = 0.35;
-    }
+  if (remainingMs !== null && remainingMs < 30000) {
+    median = 500; sigma = 0.3;
+  } else if (phase === 'opening') {
+    median = gap !== null && gap >= 400 ? 1200 : 1800;
+    sigma = 0.3;
   } else if (Math.abs(score ?? 0) >= 90000) {
-    median = 2200; sigma = 0.35;
+    median = 1800; sigma = 0.3;
   } else if (gap === null || gap === undefined) {
-    median = phase === 'middle' ? 7500 : 5000;
-    sigma = 0.45;
-  } else if (gap >= 400) {
-    median = phase === 'opening' ? 2200 : 2600;
+    median = phase === 'middle' ? 3000 : 4000;
     sigma = 0.35;
+  } else if (gap >= 400) {
+    median = phase === 'middle' ? 2200 : 3000;
+    sigma = 0.3;
   } else if (gap >= 150) {
-    median = phase === 'opening' ? 3500 : phase === 'middle' ? 6500 : 5000;
-    sigma = 0.45;
+    median = phase === 'middle' ? 2800 : 3800;
+    sigma = 0.35;
   } else {
-    median = phase === 'opening' ? 5500 : phase === 'middle' ? 11500 : 8000;
-    sigma = 0.55;
-  }
-
-  if (phase === 'opening' && plyCount < 6 && gap !== null && gap >= 400) {
-    median = Math.min(median, 1800);
+    median = phase === 'middle' ? 3500 : 4500;
+    sigma = 0.35;
   }
 
   let t = logNormal(median, sigma);
-  if (strength >= 2200 && phase !== 'opening' && Math.random() < 0.04) {
-    t *= 1.3 + Math.random() * 1.4;
-  }
-  return Math.max(900, Math.min(t, searchCapForStrength(strength)));
+  const cap = remainingMs !== null && remainingMs < 30000
+    ? 900
+    : (phase === 'opening' ? 2500 : phase === 'middle' ? 5000 : 7000);
+  return Math.max(400, Math.min(t, cap));
 }
 
 function pickReactionDelay(gap, score, plyCount) {
@@ -386,7 +393,7 @@ async function requestBestMove(fen, sideToMove, movetime, plies, record = true, 
       plies,
       record,
       style,
-      strength: AUTO.strength,
+      skill: AUTO.skill,
     }),
   });
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -445,10 +452,9 @@ const AUTO = {
   pollTimer: null,
   busy: false,
   autoClick: false,
-  clickDelayMs: 600,
-  adaptive: true,
+  adaptive: false,
   plyCount: 0,
-  strength: 1800,
+  skill: 4,
 };
 
 function logStatus(extra = {}) {
@@ -498,8 +504,8 @@ async function autoTick() {
     : (fen === STARTPOS_FEN ? 'w' : AUTO.userSide);
   if (sideToMove !== AUTO.userSide) {
     setBotStatus(
-      `<div><div style="font-size:13px; font-weight:600; color:#cbd5e1;">Waiting</div>` +
-      `<div style="font-size:11px; color:#64748b; margin-top:2px;">opponent is thinking...</div></div>`
+      `<div><div style="font-size:13px; font-weight:800; color:#4a2417;">Waiting</div>` +
+      `<div style="font-size:11px; color:#73513a; margin-top:2px;">opponent is thinking...</div></div>`
     );
     console.log('[auto] opponent moved, waiting for user turn. moved=', diff.mover);
     return;
@@ -512,28 +518,34 @@ async function autoTick() {
     let movetime = AUTO.movetime;
 
     setBotStatus(
-      `<div><div style="font-size:13px; font-weight:600; color:#fbbf24;">Analyzing</div>` +
-      `<div style="font-size:11px; color:#64748b; margin-top:2px;">engine: ${movetime}ms</div></div>`
+      `<div><div style="font-size:13px; font-weight:800; color:#a62018;">Reading position</div>` +
+      `<div style="font-size:11px; color:#73513a; margin-top:2px;">engine: ${movetime}ms</div></div>`
     );
 
     let data;
     if (AUTO.adaptive) {
+      const remainingMs = readOwnClockMs();
       const probeTime = Math.round(pickProbeTime(plies));
       setBotStatus(
-        `<div><div style="font-size:13px; font-weight:600; color:#fbbf24;">Quick scan</div>` +
-        `<div style="font-size:11px; color:#64748b; margin-top:2px;">probe: ${probeTime}ms</div></div>`
+        `<div><div style="font-size:13px; font-weight:800; color:#a62018;">Position scan</div>` +
+        `<div style="font-size:11px; color:#73513a; margin-top:2px;">probe: ${probeTime}ms</div></div>`
       );
       const probe = await requestBestMove(fen, sideToMove, probeTime, plies, false);
-      movetime = Math.round(pickSearchTime(probe.gap, probe.score, plies, AUTO.strength));
+      movetime = Math.round(pickSearchTime(probe.gap, probe.score, plies, remainingMs));
+      movetime = Math.min(movetime, Math.max(400, totalThinkCap(plies, remainingMs) - probeTime));
 
       if (movetime > probeTime + 500) {
         setBotStatus(
-          `<div><div style="font-size:13px; font-weight:600; color:#fbbf24;">Deep search</div>` +
-          `<div style="font-size:11px; color:#64748b; margin-top:2px;">engine: ${movetime}ms, gap=${probe.gap ?? '?'}</div></div>`
+          `<div><div style="font-size:13px; font-weight:800; color:#a62018;">Human-like search</div>` +
+          `<div style="font-size:11px; color:#73513a; margin-top:2px;">engine: ${movetime}ms, gap=${probe.gap ?? '?'}</div></div>`
         );
       }
       data = await requestBestMove(fen, sideToMove, movetime, plies, true);
     } else {
+      setBotStatus(
+        `<div><div style="font-size:13px; font-weight:800; color:#a62018;">Fast search</div>` +
+        `<div style="font-size:11px; color:#73513a; margin-top:2px;">engine: ${movetime}ms</div></div>`
+      );
       data = await requestBestMove(fen, sideToMove, movetime, plies, true);
     }
     if (data.bestmove && data.bestmove !== '(none)') {
@@ -544,7 +556,7 @@ async function autoTick() {
       if (AUTO.autoClick) {
         const delay = AUTO.adaptive
           ? Math.round(pickReactionDelay(data.gap, data.score, plies))
-          : AUTO.clickDelayMs;
+          : 0;
         const phase = plies < 10 ? 'opening' : plies < 40 ? 'middle' : 'endgame';
         const difficulty = data.gap === null ? '?' :
           data.gap >= 400 ? 'clear' :
@@ -553,24 +565,26 @@ async function autoTick() {
           ? (data.score > 0 ? 'M' : '-M')
           : ((data.score ?? 0) / 100).toFixed(2);
 
-        startCountdown(
-          `${data.bestmove}  -  ${scoreStr}`,
-          delay,
-          difficulty === 'complex' ? '#f87171' : difficulty === 'clear' ? '#86efac' : '#7dd3fc'
-        );
-        setTimeout(() => {
-          const el = document.getElementById(STATUS_ID);
-          const body = el?.querySelector('.xq-bot-body');
-          if (body) {
-            body.insertAdjacentHTML('beforeend',
-              `<div style="font-size:11px; color:#64748b; margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;">` +
-                `<span style="background:rgba(148,163,184,0.12); padding:2px 6px; border-radius:4px;">${phase}</span>` +
-                `<span style="background:rgba(148,163,184,0.12); padding:2px 6px; border-radius:4px;">${difficulty}</span>` +
-                `<span style="background:rgba(148,163,184,0.12); padding:2px 6px; border-radius:4px;">d=${data.depth}</span>` +
-              `</div>`
-            );
-          }
-        }, 50);
+        if (delay > 0) {
+          startCountdown(
+            `${data.bestmove}  -  ${scoreStr}`,
+            delay,
+            difficulty === 'complex' ? '#a62018' : difficulty === 'clear' ? '#2f7d46' : '#b7791f'
+          );
+          setTimeout(() => {
+            const el = document.getElementById(STATUS_ID);
+            const body = el?.querySelector('.xq-bot-body');
+            if (body) {
+              body.insertAdjacentHTML('beforeend',
+                `<div style="font-size:11px; color:#73513a; margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;">` +
+                  `<span style="background:rgba(74,36,23,0.10); padding:2px 6px; border-radius:4px;">${phase}</span>` +
+                  `<span style="background:rgba(74,36,23,0.10); padding:2px 6px; border-radius:4px;">${difficulty}</span>` +
+                  `<span style="background:rgba(74,36,23,0.10); padding:2px 6px; border-radius:4px;">d=${data.depth}</span>` +
+                `</div>`
+              );
+            }
+          }, 50);
+        }
 
         console.log('[auto-click] delay=', delay, 'ms', `(phase=${phase}, ${difficulty})`);
         await new Promise(r => setTimeout(r, delay));
@@ -578,8 +592,8 @@ async function autoTick() {
           const ok = await autoClickMove(data.bestmove);
           stopCountdown();
           setBotStatus(
-            `<div><div style="font-size:14px; font-weight:700; color:#86efac;">${data.bestmove}</div>` +
-            `<div style="font-size:11px; color:#64748b; margin-top:2px;">eval ${scoreStr} - ${phase}</div></div>`
+            `<div><div style="font-size:14px; font-weight:800; color:#2f7d46;">${data.bestmove}</div>` +
+            `<div style="font-size:11px; color:#73513a; margin-top:2px;">eval ${scoreStr} - ${phase}</div></div>`
           );
           console.log('[auto-click]', data.bestmove, '->', ok ? 'sent' : 'FAILED');
         }
@@ -588,15 +602,15 @@ async function autoTick() {
           ? (data.score > 0 ? 'M' : '-M')
           : ((data.score ?? 0) / 100).toFixed(2);
         setBotStatus(
-          `<div><div style="font-size:14px; font-weight:700; color:#86efac;">${data.bestmove}</div>` +
-          `<div style="font-size:11px; color:#64748b; margin-top:2px;">eval ${scoreStr} - d=${data.depth}</div></div>`
+          `<div><div style="font-size:14px; font-weight:800; color:#2f7d46;">${data.bestmove}</div>` +
+          `<div style="font-size:11px; color:#73513a; margin-top:2px;">eval ${scoreStr} - d=${data.depth}</div></div>`
         );
       }
     }
   } catch (e) {
     setBotStatus(
-      `<div><div style="font-size:13px; font-weight:600; color:#f87171;">Engine error</div>` +
-      `<div style="font-size:11px; color:#64748b; margin-top:2px;">${e.message}</div></div>`
+      `<div><div style="font-size:13px; font-weight:800; color:#a62018;">Engine error</div>` +
+      `<div style="font-size:11px; color:#73513a; margin-top:2px;">${e.message}</div></div>`
     );
     console.warn('[auto] engine error:', e.message);
   } finally {
@@ -604,13 +618,13 @@ async function autoTick() {
   }
 }
 
-function startAuto({ movetime = 1000, strength = 1800 } = {}) {
+function startAuto({ movetime = 1000, skill = 4 } = {}) {
   if (AUTO.enabled) return;
   if (!document.querySelector('#game-grid')) throw new Error('#game-grid not found');
 
   AUTO.enabled = true;
   AUTO.movetime = movetime;
-  AUTO.strength = strength;
+  AUTO.skill = skill;
   cachedUserSide = null;
   AUTO.userSide = getUserSide();
   AUTO.prevBoard = null;
@@ -634,39 +648,14 @@ function stopAuto() {
 }
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  if (msg.type === 'PING') {
-    sendResponse({ reply: 'pong', url: location.href });
-    return;
-  }
-  if (msg.type === 'READ_BOARD') {
-    try {
-      const fenBoard = readBoardToFen();
-      const sideToMove = msg.side || 'w';
-      const fen = `${fenBoard} ${sideToMove} - - 0 1`;
-      sendResponse({ ok: true, fen });
-    } catch (e) {
-      sendResponse({ ok: false, error: e.message });
-    }
-    return;
-  }
   if (msg.type === 'DETECT_SIDE') {
     sendResponse({ ok: true, userSide: refreshUserSide() });
     return;
   }
-  if (msg.type === 'HIGHLIGHT_MOVE') {
-    const ok = highlightMove(msg.uci);
-    sendResponse({ ok });
-    return;
-  }
-  if (msg.type === 'CLEAR_HIGHLIGHT') {
-    clearHighlights();
-    sendResponse({ ok: true });
-    return;
-  }
   if (msg.type === 'AUTO_START') {
     try {
-      startAuto({ movetime: msg.movetime || 1000, strength: msg.strength || 1800 });
-      sendResponse({ ok: true, userSide: AUTO.userSide, strength: AUTO.strength });
+      startAuto({ movetime: msg.movetime || 1000, skill: msg.skill || AUTO.skill });
+      sendResponse({ ok: true, userSide: AUTO.userSide, skill: AUTO.skill });
     } catch (e) {
       sendResponse({ ok: false, error: e.message });
     }
@@ -679,9 +668,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
   if (msg.type === 'AUTO_CLICK_TOGGLE') {
     AUTO.autoClick = !!msg.enabled;
-    if (typeof msg.delayMs === 'number') AUTO.clickDelayMs = msg.delayMs;
-    console.log('[auto-click] enabled=', AUTO.autoClick, 'delay=', AUTO.clickDelayMs);
-    sendResponse({ ok: true, autoClick: AUTO.autoClick, clickDelayMs: AUTO.clickDelayMs });
+    console.log('[auto-click] enabled=', AUTO.autoClick);
+    sendResponse({ ok: true, autoClick: AUTO.autoClick });
     return;
   }
   if (msg.type === 'ADAPTIVE_TOGGLE') {
@@ -690,17 +678,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     sendResponse({ ok: true, adaptive: AUTO.adaptive });
     return;
   }
-  if (msg.type === 'STRENGTH_SET') {
-    AUTO.strength = msg.strength || AUTO.strength;
-    console.log('[auto] strength=', AUTO.strength);
-    sendResponse({ ok: true, strength: AUTO.strength });
+  if (msg.type === 'SKILL_SET') {
+    AUTO.skill = msg.skill || AUTO.skill;
+    sendResponse({ ok: true, skill: AUTO.skill });
     return;
   }
   if (msg.type === 'AUTO_STATE') {
     sendResponse({
       ok: true, enabled: AUTO.enabled, userSide: AUTO.userSide,
-      autoClick: AUTO.autoClick, clickDelayMs: AUTO.clickDelayMs,
-      adaptive: AUTO.adaptive, plyCount: AUTO.plyCount, strength: AUTO.strength,
+      autoClick: AUTO.autoClick,
+      adaptive: AUTO.adaptive, plyCount: AUTO.plyCount, skill: AUTO.skill,
     });
     return;
   }
