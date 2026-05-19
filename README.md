@@ -16,7 +16,7 @@
 </p>
 
 <p align="center">
-  <img src="assets/readme-preview.png" alt="Xiangqi Bot Helper preview">
+  <img src="assets/demo.gif" alt="Xiangqi Bot Helper demo">
 </p>
 
 ---
