@@ -1,4 +1,6 @@
 engine/
+native_host_manifest.json
+blog.html
 __pycache__/
 *.pyc
 .venv/

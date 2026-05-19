@@ -3,48 +3,277 @@
 <head>
   <meta charset="UTF-8">
   <style>
-    body { width: 240px; font-family: system-ui, sans-serif; padding: 12px; }
-    h3 { margin: 0 0 8px 0; font-size: 14px; }
-    button { width: 100%; padding: 8px; margin: 4px 0; cursor: pointer; }
-    #status { font-size: 12px; color: #555; margin-top: 8px; }
-    .ok { color: green; }
-    .err { color: red; }
+    :root {
+      --bg: #0b1220;
+      --panel: #111827;
+      --panel-2: #162033;
+      --text: #e5edf8;
+      --muted: #94a3b8;
+      --line: rgba(148, 163, 184, 0.18);
+      --accent: #38bdf8;
+      --good: #22c55e;
+      --bad: #ef4444;
+      --warn: #f59e0b;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      width: 320px;
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    }
+
+    .shell {
+      padding: 14px;
+    }
+
+    .top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .title {
+      min-width: 0;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 15px;
+      line-height: 1.2;
+      letter-spacing: 0;
+    }
+
+    .sub {
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .pill {
+      flex: 0 0 auto;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      max-width: 118px;
+      padding: 5px 8px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--muted);
+      background: rgba(255, 255, 255, 0.03);
+      font-size: 11px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--muted);
+      box-shadow: 0 0 8px currentColor;
+    }
+
+    .pill.on { color: #86efac; }
+    .pill.on .dot { background: var(--good); }
+
+    .status {
+      min-height: 42px;
+      padding: 10px 11px;
+      margin-bottom: 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      color: var(--muted);
+      overflow-wrap: anywhere;
+    }
+
+    .status.ok { color: #86efac; border-color: rgba(34, 197, 94, 0.28); }
+    .status.err { color: #fca5a5; border-color: rgba(239, 68, 68, 0.34); }
+
+    button, select {
+      font: inherit;
+    }
+
+    button {
+      width: 100%;
+      min-height: 36px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel-2);
+      color: var(--text);
+      cursor: pointer;
+    }
+
+    button:hover {
+      border-color: rgba(56, 189, 248, 0.45);
+      background: #1b2940;
+    }
+
+    button:active {
+      transform: translateY(1px);
+    }
+
+    .primary {
+      min-height: 42px;
+      border: 0;
+      background: var(--accent);
+      color: #04111f;
+      font-weight: 800;
+    }
+
+    .primary:hover {
+      background: #67d3ff;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .stack {
+      display: grid;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .section {
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid var(--line);
+    }
+
+    .section-title {
+      margin-bottom: 8px;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .controls {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    label {
+      display: grid;
+      gap: 5px;
+      min-width: 0;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    select {
+      width: 100%;
+      height: 34px;
+      padding: 0 8px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      color: var(--text);
+    }
+
+    .toggle.active {
+      border-color: rgba(34, 197, 94, 0.42);
+      color: #86efac;
+      background: rgba(34, 197, 94, 0.12);
+    }
+
+    .toggle.warn {
+      border-color: rgba(245, 158, 11, 0.38);
+      color: #fcd34d;
+      background: rgba(245, 158, 11, 0.1);
+    }
   </style>
 </head>
 <body>
-  <h3>Xiangqi Bot Helper</h3>
-  <button id="ping">Test content script</button>
-  <button id="testEngine">Test Pikafish server</button>
-  <button id="readBoard">Đọc thế cờ → FEN</button>
-  <button id="suggest">Gợi ý nước đi</button>
-  <button id="autoToggle">Auto-suggest: OFF</button>
-  <button id="clickToggle">Auto-click: OFF</button>
-  <button id="adaptiveToggle">Adaptive: ON</button>
-  <label style="font-size:12px; display:block; margin-top:6px;">
-    Time:
-    <select id="movetime">
-      <option value="500">0.5s</option>
-      <option value="1000" selected>1s</option>
-      <option value="2000">2s</option>
-      <option value="5000">5s</option>
-    </select>
-    Delay click:
-    <select id="clickDelay">
-      <option value="200">0.2s</option>
-      <option value="600" selected>0.6s</option>
-      <option value="1500">1.5s</option>
-      <option value="3000">3s</option>
-    </select>
-  </label>
-  <label style="font-size:12px; display:block; margin-top:6px;">
-    Lượt:
-    <select id="side">
-      <option value="auto" selected>Auto</option>
-      <option value="w">Đỏ (w)</option>
-      <option value="b">Đen (b)</option>
-    </select>
-  </label>
-  <div id="status">Sẵn sàng.</div>
+  <div class="shell">
+    <div class="top">
+      <div class="title">
+        <h1>Xiangqi Bot</h1>
+        <div class="sub">play.xiangqi.com helper</div>
+      </div>
+      <div id="runState" class="pill"><span class="dot"></span><span>Idle</span></div>
+    </div>
+
+    <div id="status" class="status">Sẵn sàng.</div>
+
+    <button id="startBot" class="primary">Start Bot</button>
+
+    <div class="section">
+      <div class="section-title">Mode</div>
+      <div class="grid">
+        <button id="autoToggle" class="toggle">Auto-suggest</button>
+        <button id="clickToggle" class="toggle">Auto-click</button>
+      </div>
+      <div class="stack">
+        <button id="adaptiveToggle" class="toggle">Adaptive timing</button>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Settings</div>
+      <div class="controls">
+        <label>
+          Think
+          <select id="movetime">
+            <option value="500">0.5s</option>
+            <option value="1000" selected>1s</option>
+            <option value="2000">2s</option>
+            <option value="5000">5s</option>
+          </select>
+        </label>
+        <label>
+          Click
+          <select id="clickDelay">
+            <option value="200">0.2s</option>
+            <option value="600" selected>0.6s</option>
+            <option value="1500">1.5s</option>
+            <option value="3000">3s</option>
+          </select>
+        </label>
+        <label>
+          Side
+          <select id="side">
+            <option value="auto" selected>Auto</option>
+            <option value="w">Red</option>
+            <option value="b">Black</option>
+          </select>
+        </label>
+        <label>
+          Elo
+          <select id="strength">
+            <option value="1000">1000</option>
+            <option value="1400">1400</option>
+            <option value="1800" selected>1800</option>
+            <option value="2200">2200</option>
+            <option value="2600">2600+</option>
+          </select>
+        </label>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Tools</div>
+      <div class="grid">
+        <button id="ping">Ping page</button>
+        <button id="testEngine">Ping engine</button>
+        <button id="readBoard">Read FEN</button>
+        <button id="suggest">Suggest</button>
+      </div>
+    </div>
+  </div>
   <script src="popup.js"></script>
 </body>
 </html>

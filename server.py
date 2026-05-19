@@ -39,6 +39,41 @@ def variety_config(plies: int) -> tuple[int, int]:
         return 3, 30
     return 2, 0
 
+def strength_config(strength: int, plies: int) -> tuple[int, int]:
+    """Map muc Elo tap luyen sang (multipv, max_drop_cp)."""
+    if strength >= 2600:
+        return 4, 70
+    if strength >= 2200:
+        return 5, 130
+    if strength >= 1800:
+        return 6, 220
+    if strength >= 1400:
+        return 8, 350 if plies < 40 else 260
+    return 10, 520 if plies < 40 else 380
+
+def strength_weights(strength: int, candidates: list[tuple[str, int, int]]) -> list[int]:
+    if strength >= 2600:
+        return [max(1, 14 - (k - 1) * 5) for _, _, k in candidates]
+    if strength >= 2200:
+        return [max(1, 10 - (k - 1) * 3) for _, _, k in candidates]
+    if strength >= 1800:
+        return [max(1, 8 - (k - 1) * 2) for _, _, k in candidates]
+    if strength >= 1400:
+        return [max(1, 5 - (k - 1)) for _, _, k in candidates]
+    return [2 if k == 1 else 3 for _, _, k in candidates]
+
+
+def mistake_config(strength: int) -> tuple[float, int, int]:
+    """Tra ve (rate, min_drop_cp, max_drop_cp) cho local sparring."""
+    if strength >= 2600:
+        return 0.03, 80, 160
+    if strength >= 2200:
+        return 0.08, 100, 240
+    if strength >= 1800:
+        return 0.16, 140, 420
+    if strength >= 1400:
+        return 0.28, 180, 700
+    return 0.42, 220, 1100
 
 class Engine:
     def __init__(self, exe_path: Path):
@@ -116,39 +151,7 @@ class Engine:
         except (ValueError, IndexError):
             return None
 
-    def _parse_search(self, lines):
-        best_line = lines[-1] if lines else ""
-        parts = best_line.split()
-        best = parts[1] if len(parts) > 1 else None
-
-        pv_scores: dict[int, int] = {}
-        pv_moves: dict[int, str] = {}
-        last_depth = 0
-        for l in lines:
-            if not l.startswith("info") or "score" not in l or "multipv" not in l:
-                continue
-            pv = self._multipv_from_info(l)
-            sc = self._score_from_info(l)
-            mv = self._pv_first_move(l)
-            if pv is not None:
-                if sc is not None:
-                    pv_scores[pv] = sc
-                if mv is not None:
-                    pv_moves[pv] = mv
-            if " depth " in l:
-                try:
-                    d = int(l.split(" depth ")[1].split()[0])
-                    last_depth = max(last_depth, d)
-                except (ValueError, IndexError):
-                    pass
-
-        best_score = pv_scores.get(1)
-        second_score = pv_scores.get(2)
-        second_move = pv_moves.get(2)
-        gap = abs(best_score - second_score) if (best_score is not None and second_score is not None) else None
-        return best, second_move, best_score, second_score, gap, last_depth
-
-    def bestmove(self, fen: str, movetime_ms: int = 1000, depth=None, plies: int = 0) -> dict:
+    def bestmove(self, fen: str, movetime_ms: int = 1000, depth=None, plies: int = 0, record: bool = True, style: str = "best", strength: int = 2200) -> dict:
         with self.lock:
             board = fen_board_only(fen)
 
@@ -156,7 +159,10 @@ class Engine:
                 print("[engine] startpos detected, reset anti-repetition history")
                 self.played.clear()
 
-            multipv, max_gap = variety_config(plies)
+            if style == "sparring":
+                multipv, max_gap = strength_config(strength, plies)
+            else:
+                multipv, max_gap = variety_config(plies)
             self._set_multipv(multipv)
 
             self._send("ucinewgame")
@@ -176,20 +182,26 @@ class Engine:
 
             already_played = self.played.get(board, set())
             candidates = []
+            mistake_candidates = []
             if best_score is not None and max_gap > 0:
+                mistake_rate, min_drop, max_drop = mistake_config(strength)
                 for k in sorted(pv_moves.keys()):
                     mv = pv_moves[k]
                     sc = pv_scores.get(k)
                     if sc is None or mv in already_played:
                         continue
-                    if abs(best_score - sc) <= max_gap:
+                    drop = abs(best_score - sc)
+                    if drop <= max_gap:
                         candidates.append((mv, sc, k))
+                    elif style == "sparring" and min_drop <= drop <= max_drop:
+                        mistake_candidates.append((mv, sc, k))
 
             chosen = best
             chosen_score = best_score
             chosen_pv = 1
             avoided = False
             randomized = False
+            mistake = False
 
             if best in already_played:
                 fallback = next(((mv, sc, k) for mv, sc, k in candidates if mv != best), None)
@@ -202,14 +214,25 @@ class Engine:
                     chosen, chosen_score, chosen_pv = fallback
                     avoided = True
                     print(f"[engine] anti-repetition: {best} da choi roi -> chon PV{chosen_pv} {chosen}")
+            elif style == "sparring" and mistake_candidates and abs(best_score or 0) < 90000 and random.random() < mistake_rate:
+                pick = random.choice(mistake_candidates)
+                chosen, chosen_score, chosen_pv = pick
+                randomized = True
+                mistake = True
+                drop = abs((best_score or 0) - (chosen_score or 0))
+                print(f"[engine] soft-mistake: elo={strength}, plies={plies}, chon PV{chosen_pv} {chosen} (drop={drop}cp, score={chosen_score})")
             elif len(candidates) > 1:
-                pick = random.choice(candidates)
+                if style == "sparring" and abs(best_score or 0) < 90000:
+                    weights = strength_weights(strength, candidates)
+                    pick = random.choices(candidates, weights=weights, k=1)[0]
+                else:
+                    pick = random.choice(candidates)
                 if pick[0] != best:
                     chosen, chosen_score, chosen_pv = pick
                     randomized = True
                     print(f"[engine] variety: phase plies={plies}, co {len(candidates)} nuoc ngang ngua, chon PV{chosen_pv} {chosen} (score={chosen_score})")
 
-            if chosen and chosen != "(none)":
+            if record and chosen and chosen != "(none)":
                 self.played.setdefault(board, set()).add(chosen)
                 if len(self.played) > 200:
                     self.played.clear()
@@ -223,8 +246,11 @@ class Engine:
                 "depth": last_depth,
                 "multipv": multipv,
                 "candidates": len(candidates),
+                "style": style,
+                "strength": strength,
                 "avoided_repetition": avoided,
                 "randomized": randomized,
+                "mistake": mistake,
             }
 
     def _parse_search(self, lines):
@@ -262,7 +288,7 @@ class Engine:
             self.proc.kill()
 
 
-engine = Engine(ENGINE_EXE)
+engine = None
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -299,6 +325,9 @@ class Handler(BaseHTTPRequestHandler):
             self._json(404, {"error": "not found"})
             return
         try:
+            if engine is None:
+                self._json(503, {"error": "engine not ready"})
+                return
             length = int(self.headers.get("Content-Length", "0"))
             data = json.loads(self.rfile.read(length) or b"{}")
             fen = data.get("fen")
@@ -308,8 +337,11 @@ class Handler(BaseHTTPRequestHandler):
             movetime = int(data.get("movetime", 1000))
             depth = data.get("depth")
             plies = int(data.get("plies", 0))
+            record = bool(data.get("record", True))
+            style = data.get("style", "best")
+            strength = int(data.get("strength", 2200))
             t0 = time.time()
-            result = engine.bestmove(fen, movetime_ms=movetime, depth=depth, plies=plies)
+            result = engine.bestmove(fen, movetime_ms=movetime, depth=depth, plies=plies, record=record, style=style, strength=strength)
             result["elapsed_ms"] = int((time.time() - t0) * 1000)
             self._json(200, result)
         except Exception as e:
@@ -317,6 +349,10 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
+    global engine
+    if not ENGINE_EXE.exists():
+        raise FileNotFoundError(f"{ENGINE_EXE} not found. Run: python download_engine.py")
+    engine = Engine(ENGINE_EXE)
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     print(f"[http] listening on http://{HOST}:{PORT}")
     print(f"[http] allowed origin: {ALLOWED_ORIGIN}")

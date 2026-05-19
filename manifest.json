@@ -3,7 +3,7 @@
   "name": "Xiangqi Bot Helper",
   "version": "0.1.0",
   "description": "Hoc tap: phan tich the co va goi y nuoc di voi Pikafish",
-  "permissions": ["activeTab", "storage", "scripting"],
+  "permissions": ["activeTab", "storage", "scripting", "nativeMessaging"],
   "host_permissions": [
     "https://play.xiangqi.com/*",
     "http://127.0.0.1:8080/*"
